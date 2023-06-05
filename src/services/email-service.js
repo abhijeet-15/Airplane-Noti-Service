@@ -2,6 +2,8 @@ const {StatusCodes} = require('http-status-codes');
 const { TicketRepository } = require('../repositories');
 const { Mailer } = require('../config');
 const AppError = require('../utils/errors/app-error');
+const { ServerConfig } = require('../config')
+const amqplib = require('amqplib');
 
 const ticketRepository = new TicketRepository();
 
@@ -44,9 +46,28 @@ async function sendEmail(mailFrom, mailTo, subject, text) {
     }
 }
 
+async function connectQueue() {
+    let connection, channel;
+    try {
+        console.log("connectQueue function called");
+        connection = await amqplib.connect(ServerConfig.RABBIT_MQ);
+        channel = await connection.createChannel();
+        await channel.assertQueue(ServerConfig.NOTIFICATION_QUEUE);
+        channel.consume(ServerConfig.NOTIFICATION_QUEUE, async (data) => {
+            //console.log(`${Buffer.from(data.content)}`);
+            const object = JSON.parse(`${Buffer.from(data.content)}`);
+            await sendEmail(ServerConfig.GMAIL_EMAIL, object.recepientEmail, object.subject, object.text);
+            channel.ack(data);
+        })
+    } catch (error) {
+        console.log(error);
+    }
+}
+
 
 module.exports = {
     createTicket,
     getPendingEmails,
     sendEmail,
+    connectQueue
 }
